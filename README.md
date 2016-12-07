@@ -12,6 +12,6 @@ Using Google timezone api to convert OWM timestamp to local time.
 4. Export forecast data to local disk in csv format
 
 ## Possibile features:
-* Handle city name query if city is not in the provided list
-* Save search history
-* Share current weather to sns as text or link from OWM
+- [x] Handle city name query if city is not in the provided list
+- [ ] Save search history
+- [ ] Share current weather to sns as text or link from OWM
