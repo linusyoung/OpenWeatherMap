@@ -5,15 +5,19 @@ import string
 import sys
 import time
 
+#api keys and base url
 owm_apikey = '19049b9f2192b18999dc425f923ad5f4'
 gtz_api_key = "AIzaSyDa7aRy4D-kIoWKaD3D1nUsRQOr_R573FU"
 owm_urlbase = 'http://api.openweathermap.org/data/2.5/'
 gtz_urlbase = 'https://maps.googleapis.com/maps/api/timezone/'
+
 city_dict ={}
 city_country={}
 
 #city id mapping - moving to web server using a web call to return id
 
+# prepare_city_id_mapping
+# load city.list.json from same local location to memory
 def prepare_city_id_mapping():
 	city_mapping_file = open('city.list.json','r')
 	city_lines = city_mapping_file.readlines()
@@ -29,41 +33,109 @@ def prepare_city_id_mapping():
 			sys.stdout.flush()	
 	city_mapping_file.close()
 
+# get_city_list
+# check if user input city name in the list
+# if not in the given list, then let user choose if using city name to get a close location weather
+# return city id or str 'name' to indicate query by city name directly
+
 def get_city_list(city):
-	while True:
-		city_id_dict={}
-		for _id, name in city_dict.items():
-			if name == city:
-				city_id_dict.update({city_country[_id]:_id})
-		if len(city_id_dict)>0:
-			return city_id_dict
-		else:
-			print "City is not in the list. Please try again"
-			city = get_user_input('city')
+	city_id_dict={}
+	for _id, name in city_dict.items():
+		if name == city:
+			city_id_dict.update({city_country[_id]:_id})
+	if len(city_id_dict)>0:
+		return city_id_dict
+	else:
+		return 'name'
 
-def get_city_current(city_id):
+def get_owm_city_id(city):
+	i = 3
+	while i>0:
+		url = owm_urlbase + 'find?q=' + city + '&type=like&APPID=' + owm_apikey
+		req = urllib2.Request(url)
+		try:
+			response = urllib2.urlopen(req)
+			response_data = response.read()
+			city_data = json.loads(response_data)
+			# import pdb
+			# pdb.set_trace()
+			if city_data['cod'] == '200':
+				if city_data['count']>1:
+					city_id_dict ={}
+					for i in range(city_data['count']):
+						temp_city = city_data['list'][i]
+						if temp_city['id'] == 0:
+							continue
+						city_id_dict.update({temp_city['sys']['country']+','+ temp_city['name']:temp_city['id']})
+					
+					city_id = get_city_id(city_id_dict)
+				else:
+					city_id = city_data['list'][0]['id']
+					if city_id == 0:
+						continue
+					print 'Weather result for:\n' + city_data['list'][0]['sys']['country'] + ',' + city_data['list'][0]['name']
+					print "\nPlease try other name if current result was't correct."
+			else:
+				print 'City not found! Please try other name.'
+				city = get_user_input('city')		
+				if city == 'Q':
+					exit(0)
+				continue
 
-	req = urllib2.Request(owm_urlbase + 'weather?id='+ str(city_id) +'&units=metric&APPID=' + owm_apikey)
-	response = urllib2.urlopen(req)
-	weather_data = response.read()
-	weather_result = json.loads(weather_data)
-	return weather_result
+			return city_id
+		except urllib2.HTTPError as err:
+			print "HTTP Error:\nError code:%d %s" %(err.code, err.msg)
+			i -= 1
+			if err.code >= 500:
+				for sec in range(5):
+					time.sleep(1)
+					sys.stdout.write("Retry in %d second(s)\r" %(sec+1))
+					sys.stdout.flush()
+			continue
 
-def get_city_forecast(city_id):
-	req = urllib2.Request(owm_urlbase + 'forecast?id='+ str(city_id) +'&units=metric&APPID=' + owm_apikey)
-	response = urllib2.urlopen(req)
-	weather_data = response.read()
-	weather_result = json.loads(weather_data)
-	return weather_result
+	print "Request can't be completed. Please try later."
+	exit(0)		
+
+def get_city_weather(query_city, weather_type, result_unit):
+	# import pdb
+	# pdb.set_trace()
+	i = 3
+	while i>0:
+		try:
+			url = owm_urlbase + weather_type + '?id=' + str(query_city) + result_unit + '&APPID=' + owm_apikey
+			req = urllib2.Request(url)
+			response = urllib2.urlopen(req)
+			weather_data = response.read()
+			weather_result = json.loads(weather_data)
+			return weather_result
+
+		except urllib2.HTTPError as err:
+			i -= 1
+			print "HTTP Error:\nError code:%d %s" %(err.code, err.msg)
+			if err.code >= 500:
+				for sec in range(5):
+					time.sleep(1)
+					sys.stdout.write("Retry in %d second(s)\r" %(sec+1))
+					sys.stdout.flush()
+			continue
+
+	print "Request can't be completed. Please try later."
+	exit(0)
+
+def change_unit(unit_type):
+	if unit_type == 'F':
+		return "&units=imperial"
+	else:
+		return ""
 
 def get_user_input(choice):
 	if choice == 'choice':
-		chosen_city = raw_input('Please choose the city by typing the number:')
+		query_city = raw_input('Please choose the city by typing the number:')
 	elif choice == 'city':
-		chosen_city = raw_input("Please enter a city name or 'q' to quit:\nCity name:")
-		chosen_city = string.capitalize(chosen_city)
+		query_city = raw_input("Please enter a city name or 'q' to quit:\nCity name:")
+		query_city = string.capitalize(query_city.rstrip())
 
-	return chosen_city
+	return query_city
 
 def get_city_id(city_list):
 	if len(city_list)>1:
@@ -106,10 +178,15 @@ def convert_to_local(coord, timestamp):
 	total_offset = tz_dst_offset + tz_raw_offset
 	return total_offset
 
-
-def print_weather_current(city_weather):
-	deg = u'\xb0'
-	deg = deg.encode('utf8')
+def print_weather_current(city_weather, result_unit):
+	if result_unit == "&units=metric":
+		unit = u'\xb0'
+		unit = unit.encode('utf8') + 'C'
+	elif result_unit == "&units=imperial":
+		unit = u'\xb0'
+		unit = unit.encode('utf8') + 'F'
+	else:
+		unit = "K"		
 	# country = city_weather['sys']['country']
 	# weather_condition_main = city_weather['weather'][0]['main']
 	weather_condition_descr = city_weather['weather'][0]['description']
@@ -123,13 +200,20 @@ def print_weather_current(city_weather):
 	# convert to direction
 	# wind_deg = city_weather['wind']['deg']
 	print '\nToday: ' + weather_condition_descr
-	print "Temperature: %.1f%sC Wind speed: %.1f m/s" %(temp, deg, wind_speed)
+	print "Temperature: %.1f%s Wind speed: %.1f m/s" %(temp, unit, wind_speed)
 	print "Sunrise at %s" %sunrise
 
-def print_weather_forecast(forecast_main):
+def print_weather_forecast(forecast_main, result_unit):
 	forecast_list = forecast_main['list']
-	deg = u'\xb0'
-	deg = deg.encode('utf8')
+	if result_unit == "&units=metric":
+		unit = u'\xb0'
+		unit = unit.encode('utf8') + 'C'
+	elif result_unit == "&units=imperial":
+		unit = u'\xb0'
+		unit = unit.encode('utf8') + 'F'
+	else:
+		unit = "K"	
+
 	tz_offset = convert_to_local(forecast_main['city']['coord'], forecast_list[0]['dt'])
 	print "\nCondition:\t Date:\t\tTime:\t\tTemperature:\tWind Speed:"
 	for i in range(forecast_main['cnt']):
@@ -144,18 +228,18 @@ def print_weather_forecast(forecast_main):
 		if i%9 == 0 and i>0:
 
 			if len(weather_condition_descr)>=16:
-				sys.stdout.write("%.16s %s\t%.1f%sC\t\t%.1f m/s" %(weather_condition_descr.encode('utf-8'),forecast_time, temp, deg, wind_speed))
+				sys.stdout.write("%.16s %s\t%.1f%s\t\t%.1f m/s" %(weather_condition_descr.encode('utf-8'),forecast_time, temp, unit, wind_speed))
 			else:
-				sys.stdout.write("%s\t %s\t%.1f%sC\t\t%.1f m/s" %(weather_condition_descr.encode('utf-8'),forecast_time, temp, deg, wind_speed))
+				sys.stdout.write("%s\t %s\t%.1f%s\t\t%.1f m/s" %(weather_condition_descr.encode('utf-8'),forecast_time, temp, unit, wind_speed))
 
 			print_more = raw_input()
 			if print_more == 'q':
 				return
 		else:
 			if len(weather_condition_descr)>=16:
-				print "%.16s %s\t%.1f%sC\t\t%.1f m/s" %(weather_condition_descr.encode('utf-8'),forecast_time, temp, deg, wind_speed)
+				print "%.16s %s\t%.1f%s\t\t%.1f m/s" %(weather_condition_descr.encode('utf-8'),forecast_time, temp, unit, wind_speed)
 			else:
-				print "%s\t %s\t%.1f%sC\t\t%.1f m/s" %(weather_condition_descr.encode('utf-8'),forecast_time, temp, deg, wind_speed)				
+				print "%s\t %s\t%.1f%s\t\t%.1f m/s" %(weather_condition_descr.encode('utf-8'),forecast_time, temp, unit, wind_speed)				
 
 def process_export(forecast_main):
 	# import pdb
@@ -186,23 +270,33 @@ def process_export(forecast_main):
 def main():
 	print 'Welcome! Preparing data...'
 	prepare_city_id_mapping()
+	result_unit = "&units=metric"
+	query_unit = string.capitalize(raw_input("Temperature result will be displayed in Celsius. Press enter to continue.\nType 'F' for Fahrenhei or 'K' for Kelvin:"))
+	if query_unit != '':
+		result_unit = change_unit(query_unit)
+
 	while True:
-		chosen_city = get_user_input('city')
-		if chosen_city == 'Q':
+		query_city = get_user_input('city')
+		if query_city == 'Q':
 			exit(0)
-		city_list = get_city_list(chosen_city)
-		city_id = get_city_id(city_list)
-		
-		city_weather = get_city_current(city_id)
-		print_weather_current(city_weather)
+		city_list_dict = get_city_list(query_city)
+		if city_list_dict == 'name':
+			query_city = query_city.replace(' ','+')
+			city_id = get_owm_city_id(query_city)
+		else:
+			city_id = get_city_id(city_list_dict)
+		city_weather = get_city_weather(city_id, 'weather', result_unit)
+		city_forecast = get_city_weather(city_id, 'forecast', result_unit)
+
+		print_weather_current(city_weather, result_unit)
 
 		forecast_flag = string.capitalize(raw_input("\nView forecast?[y]:"))
 		if forecast_flag == 'Y':
-			city_forecast = get_city_forecast(city_id)			
-			print_weather_forecast(city_forecast)
+			print_weather_forecast(city_forecast, result_unit)
 			export_flag = string.capitalize(raw_input("\nExport forecast data?[y]:"))
 			if export_flag == 'Y':
 				process_export(city_forecast)
 		print 'Thanks for using OpenWeatherMap.'
 
-main()
+if __name__ == "__main__":
+	main()
