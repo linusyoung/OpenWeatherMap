@@ -6,8 +6,8 @@ import sys
 import time
 
 #api keys and base url
-owm_apikey = '19049b9f2192b18999dc425f923ad5f4'
-gtz_api_key = "AIzaSyDa7aRy4D-kIoWKaD3D1nUsRQOr_R573FU"
+owm_apikey = ''
+gtz_api_key = ""
 owm_urlbase = 'http://api.openweathermap.org/data/2.5/'
 gtz_urlbase = 'https://maps.googleapis.com/maps/api/timezone/'
 
