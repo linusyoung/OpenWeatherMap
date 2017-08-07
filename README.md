@@ -5,8 +5,6 @@ python implement OpenWeatherMap api
 Using OpenWeatherMap(OWM) current and 5days3hours api to query weahter data.
 Using Google timezone api to convert OWM timestamp to local time.
 
-Test push from sublime
-why it won't let me commit
 ## Current available features:
 1. Query city name in the city.list.json provided by OWM
 2. Display current weather
